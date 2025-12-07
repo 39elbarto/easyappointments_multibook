@@ -769,30 +769,39 @@ App.Pages.Booking = (function () {
      * Без триггера change, чтобы не зациклить обработчики.
      */
     function lockServicesByAllowed(allowedIds) {
-        const hasRestriction = allowedIds && allowedIds.size > 0;
+        const $checkboxes = $('.js-multi-service-checkbox');
 
-        $('.js-multi-service-checkbox').each(function () {
-            const $checkbox = $(this);
-            const sid = String($checkbox.data('serviceId'));
-            const $container = $checkbox.closest('.form-check');
+        // Нет ограничений — разблокировать все услуги.
+        if (!Array.isArray(allowedIds) || allowedIds.length === 0) {
+            $checkboxes.each(function () {
+                $(this)
+                    .prop('disabled', false)
+                    .closest('.form-check')
+                    .removeClass('ea-service-disabled');
+            });
+            return;
+        }
 
-            if (!hasRestriction) {
-                // Нет выбранных услуг: все чекбоксы снова активны.
-                $checkbox.prop('disabled', false);
-                $container.removeClass('ea-service-disabled');
+        const allowedSet = new Set(allowedIds.map(String));
+
+        $checkboxes.each(function () {
+            const $cb = $(this);
+            const sid = String($cb.data('service-id'));
+            const isAllowed = allowedSet.has(sid);
+
+            if (isAllowed) {
+                $cb
+                    .prop('disabled', false)
+                    .closest('.form-check')
+                    .removeClass('ea-service-disabled');
                 return;
             }
 
-            if (allowedIds.has(sid)) {
-                $checkbox.prop('disabled', false);
-                $container.removeClass('ea-service-disabled');
-                return;
-            }
-
-            // Услуга недоступна для текущего пересечения мастеров.
-            $checkbox.prop('checked', false);
-            $checkbox.prop('disabled', true);
-            $container.addClass('ea-service-disabled');
+            $cb
+                .prop('checked', false)
+                .prop('disabled', true)
+                .closest('.form-check')
+                .addClass('ea-service-disabled');
         });
     }
 
