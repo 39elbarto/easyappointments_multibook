@@ -402,7 +402,7 @@ App.Pages.Booking = (function () {
 
             App.Http.Booking.getUnavailableDates(
                 $selectProvider.val(),
-                $target.val(),
+                serviceId,
                 moment(App.Utils.UI.getDateTimePickerValue($selectDate)).format('YYYY-MM-DD'),
             );
 

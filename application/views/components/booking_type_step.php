@@ -7,14 +7,15 @@
 ?>
 
 <style>
-    .multi-category {
+    .ea-multi-category {
         border: 1px solid #e9ecef;
         border-radius: 6px;
         margin-bottom: 10px;
     }
 
-    .multi-category-header {
+    .ea-multi-category-header {
         cursor: pointer;
+        user-select: none;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -25,11 +26,11 @@
         border-top-right-radius: 6px;
     }
 
-    .multi-category-body {
+    .ea-multi-category-body {
         padding: 8px 10px;
     }
 
-    .multi-category-body.collapsed {
+    .ea-multi-category-body.ea-collapsed {
         display: none;
     }
 
@@ -140,12 +141,12 @@
                             $category_id = $services[0]['service_category_id'] ?? null;
                             $body_id = 'category-' . e($slugify($category_name, $category_id ?: uniqid()));
                             ?>
-                            <div class="multi-category">
-                                <div class="multi-category-header js-category-toggle" data-target="<?= $body_id; ?>">
+                            <div class="ea-multi-category">
+                                <div class="ea-multi-category-header js-category-toggle" data-target="<?= $body_id; ?>">
                                     <span><?= e($category_name); ?></span>
                                     <span class="category-caret">▾</span>
                                 </div>
-                                <div class="multi-category-body" id="<?= $body_id; ?>">
+                                <div class="ea-multi-category-body" id="<?= $body_id; ?>">
                                     <?php foreach ($services as $service): ?>
                                         <div class="form-check mb-1">
                                             <input
