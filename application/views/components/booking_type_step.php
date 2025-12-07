@@ -6,6 +6,39 @@
  */
 ?>
 
+<style>
+    .multi-category {
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        margin-bottom: 10px;
+    }
+
+    .multi-category-header {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #e9ecef;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+    }
+
+    .multi-category-body {
+        padding: 8px 10px;
+    }
+
+    .multi-category-body.collapsed {
+        display: none;
+    }
+
+    .category-caret {
+        font-size: 12px;
+        color: #6c757d;
+    }
+</style>
+
 <div id="wizard-frame-1" class="wizard-frame" style="visibility: hidden;">
     <div class="frame-container">
         <h2 class="frame-title mt-md-5"><?= lang('service_and_provider') ?></h2>
@@ -83,42 +116,50 @@
                     <div id="service-picker" class="mt-3">
                         <?php
                         $grouped_services = [];
-                        $has_category = false;
-
                         foreach ($available_services as $service) {
-                            if (!empty($service['service_category_id'])) {
-                                $has_category = true;
-                                $grouped_services[$service['service_category_name']][] = $service;
+                            $category_name = $service['service_category_name'] ?? 'Uncategorized';
+                            if (!isset($grouped_services[$category_name])) {
+                                $grouped_services[$category_name] = [];
                             }
+                            $grouped_services[$category_name][] = $service;
                         }
 
-                        // Uncategorized services at the end.
-                        $uncategorized = array_filter($available_services, fn($s) => empty($s['service_category_id']));
-                        if (!empty($uncategorized)) {
-                            $grouped_services['Uncategorized'] = $uncategorized;
-                        }
-
-                        // If there were no categories, just group everything under a single bucket.
-                        if (!$has_category && empty($uncategorized)) {
+                        if (empty($grouped_services)) {
                             $grouped_services['Services'] = $available_services;
                         }
 
+                        $slugify = function ($text, $fallback) {
+                            $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $text));
+                            $slug = trim($slug, '-');
+
+                            return !empty($slug) ? $slug : $fallback;
+                        };
+
                         foreach ($grouped_services as $category_name => $services): ?>
-                            <div class="service-category mb-3">
-                                <div class="fw-semibold mb-2"><?= e($category_name); ?></div>
-                                <?php foreach ($services as $service): ?>
-                                    <div class="form-check">
-                                        <input
-                                            type="checkbox"
-                                            class="form-check-input js-multi-service-checkbox"
-                                            data-service-id="<?= e($service['id']); ?>"
-                                            id="service-checkbox-<?= e($service['id']); ?>"
-                                        >
-                                        <label class="form-check-label" for="service-checkbox-<?= e($service['id']); ?>">
-                                            <?= e($service['name']); ?>
-                                        </label>
-                                    </div>
-                                <?php endforeach; ?>
+                            <?php
+                            $category_id = $services[0]['service_category_id'] ?? null;
+                            $body_id = 'category-' . e($slugify($category_name, $category_id ?: uniqid()));
+                            ?>
+                            <div class="multi-category">
+                                <div class="multi-category-header js-category-toggle" data-target="<?= $body_id; ?>">
+                                    <span><?= e($category_name); ?></span>
+                                    <span class="category-caret">▾</span>
+                                </div>
+                                <div class="multi-category-body" id="<?= $body_id; ?>">
+                                    <?php foreach ($services as $service): ?>
+                                        <div class="form-check mb-1">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input js-multi-service-checkbox"
+                                                data-service-id="<?= e($service['id']); ?>"
+                                                id="service-checkbox-<?= e($service['id']); ?>"
+                                            >
+                                            <label class="form-check-label" for="service-checkbox-<?= e($service['id']); ?>">
+                                                <?= e($service['name']); ?>
+                                            </label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -126,7 +167,7 @@
 
                 <?php slot('after_select_service'); ?>
 
-                <div class="mb-3" hidden>
+                <div class="mb-3">
                     <label for="select-provider">
                         <strong><?= lang('provider') ?></strong>
                     </label>

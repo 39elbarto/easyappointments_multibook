@@ -411,6 +411,22 @@ App.Pages.Booking = (function () {
             App.Pages.Booking.updateServiceDescription(serviceId);
         });
 
+        // Toggle service categories
+        $(document).on('click', '.js-category-toggle', function () {
+            const targetId = $(this).data('target');
+            if (!targetId) {
+                return;
+            }
+
+            const $body = $('#' + targetId);
+            $body.toggleClass('collapsed');
+
+            const $caret = $(this).find('.category-caret');
+            if ($caret.length) {
+                $caret.text($body.hasClass('collapsed') ? '▸' : '▾');
+            }
+        });
+
         // Multi-service checkboxes (lightweight: sync first selected into hidden select)
         $(document).on('change', '.js-multi-service-checkbox', () => {
             const selected = getSelectedServiceIds();
