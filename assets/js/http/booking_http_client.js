@@ -180,7 +180,7 @@ App.Http.Booking = (function () {
 
         const formData = JSON.parse($('input[name="post_data"]').val());
 
-        // Multi-service support: collect selected services from the page.
+        // Multi-service support (light): collect selected services; first is main service.
         let selectedServiceIds = [];
         if (App && App.Pages && App.Pages.Booking && App.Pages.Booking.getSelectedServiceIds) {
             selectedServiceIds = App.Pages.Booking.getSelectedServiceIds() || [];

@@ -358,25 +358,16 @@ App.Pages.Booking = (function () {
         });
 
         /**
-         * Event: Selected Service "Changed"
-         *
-         * When the user clicks on a service, its available providers should
-         * become visible.
+         * Event: Selected Service "Changed" (vanilla single-service flow; checkboxes sync the main service)
          */
         $selectService.on('change', () => {
-            const selectedServiceIds = getSelectedServiceIds();
-            const serviceId = selectedServiceIds[0] || '';
+            const serviceId = $selectService.val();
 
-            // Keep the hidden select in sync with the first selected service.
-            $selectService.val(serviceId);
             $selectProvider.parent().prop('hidden', !Boolean(serviceId));
-
             $selectProvider.empty();
-
             $selectProvider.append(new Option(lang('please_select'), ''));
 
             vars('available_providers').forEach((provider) => {
-                // If the current provider is able to provide the selected service, add him to the list box.
                 const canServeService =
                     provider.services.filter((providerServiceId) => Number(providerServiceId) === Number(serviceId))
                         .length > 0;
@@ -388,13 +379,9 @@ App.Pages.Booking = (function () {
 
             const providerOptionCount = $selectProvider.find('option').length;
 
-            // Remove the "Please Select" option, if there is only one provider available
-
             if (providerOptionCount === 2) {
                 $selectProvider.find('option[value=""]').remove();
             }
-
-            // Add the "Any Provider" entry
 
             if (providerOptionCount > 2 && Boolean(Number(vars('display_any_provider')))) {
                 $(new Option(lang('any_provider'), 'any-provider')).insertAfter($selectProvider.find('option:first'));
