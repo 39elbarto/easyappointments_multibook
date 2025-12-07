@@ -46,17 +46,30 @@ App.Http.Booking = (function () {
         $availableHours.empty();
 
         // Find the selected service duration (it is going to be send within the "data" object).
-        const serviceId = $selectService.val();
+        const rawServiceIds = $selectService.val();
+        const selectedServiceIds = Array.isArray(rawServiceIds)
+            ? rawServiceIds.filter((v) => v !== '')
+            : rawServiceIds
+                ? [rawServiceIds]
+                : [];
+        const primaryServiceId = selectedServiceIds[0] || $selectService.val();
 
         // Default value of duration (in minutes).
         let serviceDuration = 15;
 
-        const service = vars('available_services').find(
-            (availableService) => Number(availableService.id) === Number(serviceId),
-        );
+        if (selectedServiceIds.length) {
+            const selectedServices = vars('available_services').filter((availableService) =>
+                selectedServiceIds.includes(String(availableService.id)),
+            );
 
-        if (service) {
-            serviceDuration = service.duration;
+            const totalDuration = selectedServices.reduce(
+                (sum, svc) => (svc.duration ? sum + Number(svc.duration) : sum),
+                0,
+            );
+
+            if (totalDuration) {
+                serviceDuration = totalDuration;
+            }
         }
 
         // If the manage mode is true then the appointment's start date should return as available too.
@@ -67,7 +80,7 @@ App.Http.Booking = (function () {
 
         const data = {
             csrf_token: vars('csrf_token'),
-            service_id: $selectService.val(),
+            service_id: primaryServiceId,
             provider_id: $selectProvider.val(),
             selected_date: selectedDate,
             service_duration: serviceDuration,
@@ -167,6 +180,23 @@ App.Http.Booking = (function () {
 
         const formData = JSON.parse($('input[name="post_data"]').val());
 
+        // Multi-service support: collect selected services from the page.
+        let selectedServiceIds = [];
+        if (App && App.Pages && App.Pages.Booking && App.Pages.Booking.getSelectedServiceIds) {
+            selectedServiceIds = App.Pages.Booking.getSelectedServiceIds() || [];
+        }
+        const mainServiceId =
+            selectedServiceIds.length > 0
+                ? selectedServiceIds[0]
+                : formData?.appointment?.id_services || formData?.serviceId || formData?.service_id;
+
+        if (formData && formData.appointment) {
+            formData.appointment.services = selectedServiceIds;
+            if (mainServiceId) {
+                formData.appointment.id_services = mainServiceId;
+            }
+        }
+
         const data = {
             csrf_token: vars('csrf_token'),
             post_data: formData,
@@ -248,6 +278,15 @@ App.Http.Booking = (function () {
         }
 
         const appointmentId = App.Pages.Booking.manageMode ? vars('appointment_data').id : null;
+        const rawServiceIds = $selectService.val();
+        const selectedServiceIds = Array.isArray(rawServiceIds)
+            ? rawServiceIds.filter((v) => v !== '')
+            : rawServiceIds
+                ? [rawServiceIds]
+                : [];
+        const totalDuration = vars('available_services')
+            .filter((availableService) => selectedServiceIds.includes(String(availableService.id)))
+            .reduce((sum, svc) => (svc.duration ? sum + Number(svc.duration) : sum), 0);
 
         const url = App.Utils.Url.siteUrl('booking/get_unavailable_dates');
 
@@ -258,6 +297,7 @@ App.Http.Booking = (function () {
             csrf_token: vars('csrf_token'),
             manage_mode: Number(App.Pages.Booking.manageMode),
             appointment_id: appointmentId,
+            service_duration: totalDuration || undefined,
         };
 
         $.ajax({

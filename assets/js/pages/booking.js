@@ -41,6 +41,7 @@ App.Pages.Booking = (function () {
     const $displayBookingSelection = $('.display-booking-selection');
     const tippy = window.tippy;
     const moment = window.moment;
+    let multiSelectedServiceIds = [];
 
     /**
      * Determines the functionality of the page.
@@ -362,9 +363,12 @@ App.Pages.Booking = (function () {
          * When the user clicks on a service, its available providers should
          * become visible.
          */
-        $selectService.on('change', (event) => {
-            const $target = $(event.target);
-            const serviceId = $selectService.val();
+        $selectService.on('change', () => {
+            const selectedServiceIds = getSelectedServiceIds();
+            const serviceId = selectedServiceIds[0] || '';
+
+            // Keep the hidden select in sync with the first selected service.
+            $selectService.val(serviceId);
             $selectProvider.parent().prop('hidden', !Boolean(serviceId));
 
             $selectProvider.empty();
@@ -405,6 +409,15 @@ App.Pages.Booking = (function () {
             App.Pages.Booking.updateConfirmFrame();
 
             App.Pages.Booking.updateServiceDescription(serviceId);
+        });
+
+        // Multi-service checkboxes (lightweight: sync first selected into hidden select)
+        $(document).on('change', '.js-multi-service-checkbox', () => {
+            const selected = getSelectedServiceIds();
+            const mainServiceId = selected[0] || '';
+
+            $selectService.val(mainServiceId);
+            $selectService.trigger('change');
         });
 
         /**
@@ -613,6 +626,149 @@ App.Pages.Booking = (function () {
                 App.Http.Booking.applyPreviousUnavailableDates();
             }, 300);
         });
+    }
+
+    /**
+     * Собирает выбранные услуги: чекбоксы -> fallback к скрытому select.
+     */
+    function getSelectedServiceIds() {
+        const ids = [];
+
+        $('.js-multi-service-checkbox:checked').each((_, el) => {
+            const id = $(el).data('serviceId');
+            if (id !== undefined && id !== null && String(id).trim() !== '') {
+                ids.push(String(id));
+            }
+        });
+
+        if (!ids.length) {
+            const val = $selectService.val();
+
+            if (Array.isArray(val)) {
+                val.forEach((id) => {
+                    if (id !== undefined && id !== null && String(id).trim() !== '') {
+                        ids.push(String(id));
+                    }
+                });
+            } else if (val !== undefined && val !== null && String(val).trim() !== '') {
+                ids.push(String(val));
+            }
+        }
+
+        multiSelectedServiceIds = Array.from(new Set(ids));
+        return multiSelectedServiceIds;
+    }
+
+    /**
+     * Нормализует provider.services в массив строковых ID.
+     */
+    function getProviderServiceIds(provider) {
+        if (!provider || provider.services == null) {
+            return [];
+        }
+
+        const services = provider.services;
+
+        if (Array.isArray(services)) {
+            return services
+                .map((s) => {
+                    if (typeof s === 'object' && s !== null) {
+                        if (s.id != null) {
+                            return String(s.id);
+                        }
+                        if (s.service_id != null) {
+                            return String(s.service_id);
+                        }
+                        return '';
+                    }
+
+                    return String(s);
+                })
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+
+        if (typeof services === 'string') {
+            return services
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+
+        return [];
+    }
+
+    /**
+     * Проверяет, что провайдер умеет все выбранные услуги.
+     * Пустой список услуг считаем несоответствием.
+     */
+    function providerCanServeAllServices(provider, selectedServiceIds) {
+        if (!selectedServiceIds || !selectedServiceIds.length) {
+            return false;
+        }
+
+        const providerServiceIds = getProviderServiceIds(provider);
+        if (!providerServiceIds.length) {
+            return false;
+        }
+
+        return selectedServiceIds.every((id) => providerServiceIds.indexOf(id) !== -1);
+    }
+
+    /**
+     * Фильтрует провайдеров по выбранным услугам с предохранителем.
+     */
+    function getFilteredProvidersByServices(selectedServiceIds) {
+        const allProviders =
+            (typeof App !== 'undefined' && App.Vars && App.Vars.get('available_providers')) ||
+            (typeof GlobalVariables !== 'undefined' && GlobalVariables.availableProviders) ||
+            (typeof vars === 'function' ? vars('available_providers') : []) ||
+            [];
+
+        if (!selectedServiceIds || !selectedServiceIds.length) {
+            return allProviders;
+        }
+
+        const filtered = allProviders.filter((provider) => providerCanServeAllServices(provider, selectedServiceIds));
+
+        if (filtered.length === 0 && allProviders.length > 0) {
+            console.warn(
+                'EA multi-services: no providers matched, falling back to all providers',
+                selectedServiceIds,
+                allProviders,
+            );
+            return allProviders;
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Базовое восстановление списка провайдеров (используем только первую услугу).
+     */
+    function rebuildProviderSelect(selectedServiceIds) {
+        const serviceId = selectedServiceIds[0] || '';
+        const filteredProviders = vars('available_providers').filter((provider) =>
+            provider.services.some((providerServiceId) => Number(providerServiceId) === Number(serviceId)),
+        );
+
+        $selectProvider.parent().prop('hidden', !Boolean(serviceId));
+        $selectProvider.empty();
+        $selectProvider.append(new Option(lang('please_select'), ''));
+
+        filteredProviders.forEach((provider) => {
+            $selectProvider.append(new Option(provider.first_name + ' ' + provider.last_name, provider.id));
+        });
+
+        const providerOptionCount = $selectProvider.find('option').length;
+
+        if (providerOptionCount === 2) {
+            $selectProvider.find('option[value=""]').remove();
+        }
+
+        if (providerOptionCount > 2 && Boolean(Number(vars('display_any_provider')))) {
+            $(new Option(lang('any_provider'), 'any-provider')).insertAfter($selectProvider.find('option:first'));
+        }
     }
 
     /**
@@ -978,5 +1134,6 @@ App.Pages.Booking = (function () {
         updateConfirmFrame,
         updateServiceDescription,
         validateCustomerForm,
+        getSelectedServiceIds,
     };
 })();

@@ -17,7 +17,7 @@
                         <strong><?= lang('service') ?></strong>
                     </label>
 
-                    <select id="select-service" class="form-select">
+                    <select id="select-service" class="form-select d-none">
                         <option value="">
                             <?= lang('please_select') ?>
                         </option>
@@ -76,6 +76,52 @@
                         }
                         ?>
                     </select>
+                    <small class="text-muted d-block mt-1">
+                        You can select multiple services for a single visit.
+                    </small>
+
+                    <div id="service-picker" class="mt-3">
+                        <?php
+                        $grouped_services = [];
+                        $has_category = false;
+
+                        foreach ($available_services as $service) {
+                            if (!empty($service['service_category_id'])) {
+                                $has_category = true;
+                                $grouped_services[$service['service_category_name']][] = $service;
+                            }
+                        }
+
+                        // Uncategorized services at the end.
+                        $uncategorized = array_filter($available_services, fn($s) => empty($s['service_category_id']));
+                        if (!empty($uncategorized)) {
+                            $grouped_services['Uncategorized'] = $uncategorized;
+                        }
+
+                        // If there were no categories, just group everything under a single bucket.
+                        if (!$has_category && empty($uncategorized)) {
+                            $grouped_services['Services'] = $available_services;
+                        }
+
+                        foreach ($grouped_services as $category_name => $services): ?>
+                            <div class="service-category mb-3">
+                                <div class="fw-semibold mb-2"><?= e($category_name); ?></div>
+                                <?php foreach ($services as $service): ?>
+                                    <div class="form-check">
+                                        <input
+                                            type="checkbox"
+                                            class="form-check-input js-multi-service-checkbox"
+                                            data-service-id="<?= e($service['id']); ?>"
+                                            id="service-checkbox-<?= e($service['id']); ?>"
+                                        >
+                                        <label class="form-check-label" for="service-checkbox-<?= e($service['id']); ?>">
+                                            <?= e($service['name']); ?>
+                                        </label>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
 
                 <?php slot('after_select_service'); ?>

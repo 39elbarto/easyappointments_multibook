@@ -54,6 +54,9 @@ class Booking extends EA_Controller
         'id_users_provider',
         'id_users_customer',
         'id_services',
+        'services',
+        'total_duration',
+        'total_price',
     ];
 
     /**
@@ -335,6 +338,66 @@ class Booking extends EA_Controller
             $appointment = $post_data['appointment'];
             $customer = $post_data['customer'];
             $manage_mode = filter_var($post_data['manage_mode'], FILTER_VALIDATE_BOOLEAN);
+            // Normalize service id (multiple select may post an array).
+            if (is_array($appointment['id_services'] ?? null)) {
+                $appointment['id_services'] = reset($appointment['id_services']);
+            }
+            $appointment['id_services'] = (int) ($appointment['id_services'] ?? 0);
+
+            // Normalize services payload (multi-service) and compute totals.
+            $services_payload = $appointment['services'] ?? [];
+            $normalized_services = [];
+            $total_duration = 0;
+            $total_price = 0;
+
+            if (is_array($services_payload)) {
+                $position = 1;
+
+                foreach ($services_payload as $service_item) {
+                    $sid = (int) ($service_item['service_id'] ?? ($service_item['serviceId'] ?? $service_item ?? 0));
+
+                    if (!$sid) {
+                        continue;
+                    }
+
+                    $service_row = $this->services_model->find($sid);
+
+                    $duration =
+                        array_key_exists('duration', $service_item) && $service_item['duration'] !== null
+                            ? (int) $service_item['duration']
+                            : ($service_row['duration'] ?? null);
+
+                    $price =
+                        array_key_exists('price', $service_item) && $service_item['price'] !== null
+                            ? (float) $service_item['price']
+                            : ($service_row['price'] ?? null);
+
+                    if ($duration !== null) {
+                        $total_duration += $duration;
+                    }
+
+                    if ($price !== null) {
+                        $total_price += $price;
+                    }
+
+                    $normalized_services[] = [
+                        'service_id' => $sid,
+                        'duration' => $duration,
+                        'price' => $price,
+                        'position' => $position++,
+                    ];
+
+                    if (empty($appointment['id_services'])) {
+                        $appointment['id_services'] = $sid;
+                    }
+                }
+            }
+
+            if (!empty($normalized_services)) {
+                $appointment['services'] = $normalized_services;
+                $appointment['total_duration'] = $total_duration ?: null;
+                $appointment['total_price'] = $total_price ?: null;
+            }
 
             if (!array_key_exists('address', $customer)) {
                 $customer['address'] = '';
@@ -441,7 +504,13 @@ class Booking extends EA_Controller
             $appointment_status_options_json = setting('appointment_status_options', '[]');
             $appointment_status_options = json_decode($appointment_status_options_json, true) ?? [];
             $appointment['status'] = $appointment_status_options[0] ?? null;
-            $appointment['end_datetime'] = $this->appointments_model->calculate_end_datetime($appointment);
+            if (!empty($appointment['total_duration'])) {
+                $start_dt = new DateTime($appointment['start_datetime']);
+                $start_dt->add(new DateInterval('PT' . (int) $appointment['total_duration'] . 'M'));
+                $appointment['end_datetime'] = $start_dt->format('Y-m-d H:i:s');
+            } else {
+                $appointment['end_datetime'] = $this->appointments_model->calculate_end_datetime($appointment);
+            }
 
             $this->appointments_model->only($appointment, $this->allowed_appointment_fields);
 
@@ -503,6 +572,10 @@ class Booking extends EA_Controller
         $post_data = request('post_data');
 
         $appointment = $post_data['appointment'];
+        if (is_array($appointment['id_services'] ?? null)) {
+            $appointment['id_services'] = reset($appointment['id_services']);
+        }
+        $appointment['id_services'] = (int) ($appointment['id_services'] ?? 0);
 
         $appointment_start = new DateTime($appointment['start_datetime']);
 
@@ -517,6 +590,20 @@ class Booking extends EA_Controller
         }
 
         $service = $this->services_model->find($appointment['id_services']);
+
+        if (!empty($appointment['services']) && is_array($appointment['services'])) {
+            $total_duration = 0;
+            foreach ($appointment['services'] as $svc) {
+                if (!empty($svc['duration'])) {
+                    $total_duration += (int) $svc['duration'];
+                }
+            }
+            if ($total_duration > 0) {
+                $service['duration'] = $total_duration;
+            }
+        } elseif (!empty($appointment['total_duration'])) {
+            $service['duration'] = (int) $appointment['total_duration'];
+        }
 
         $exclude_appointment_id = $appointment['id'] ?? null;
 
@@ -558,6 +645,9 @@ class Booking extends EA_Controller
      */
     protected function search_any_provider(int $service_id, string $date, ?string $hour = null): ?int
     {
+        if (is_array($service_id)) {
+            $service_id = reset($service_id);
+        }
         $available_providers = $this->providers_model->get_available_providers(true);
 
         $service = $this->services_model->find($service_id);
@@ -604,7 +694,12 @@ class Booking extends EA_Controller
 
             $provider_id = request('provider_id');
             $service_id = request('service_id');
+            if (is_array($service_id)) {
+                $service_id = reset($service_id);
+            }
+            $service_id = (int) $service_id;
             $selected_date = request('selected_date');
+            $service_duration = request('service_duration');
 
             // Do not continue if there was no provider selected (more likely there is no provider in the system).
 
@@ -623,6 +718,9 @@ class Booking extends EA_Controller
             // that will provide the requested service.
 
             $service = $this->services_model->find($service_id);
+            if ($service_duration !== null && (int) $service_duration > 0) {
+                $service['duration'] = (int) $service_duration;
+            }
 
             if ($provider_id === ANY_PROVIDER) {
                 $providers = $this->providers_model->get_available_providers(true);
@@ -686,12 +784,17 @@ class Booking extends EA_Controller
 
             $provider_id = request('provider_id');
             $service_id = request('service_id');
+            if (is_array($service_id)) {
+                $service_id = reset($service_id);
+            }
+            $service_id = (int) $service_id;
             $appointment_id = request('appointment_id');
             $manage_mode = filter_var(request('manage_mode'), FILTER_VALIDATE_BOOLEAN);
             $selected_date_string = request('selected_date');
             $selected_date = new DateTime($selected_date_string);
             $number_of_days_in_month = (int) $selected_date->format('t');
             $unavailable_dates = [];
+            $service_duration = request('service_duration');
 
             $provider_ids =
                 $provider_id === ANY_PROVIDER ? $this->search_providers_by_service($service_id) : [$provider_id];
@@ -700,6 +803,9 @@ class Booking extends EA_Controller
 
             // Get the service record.
             $service = $this->services_model->find($service_id);
+            if ($service_duration !== null && (int) $service_duration > 0) {
+                $service['duration'] = (int) $service_duration;
+            }
 
             for ($i = 1; $i <= $number_of_days_in_month; $i++) {
                 $current_date = new DateTime($selected_date->format('Y-m') . '-' . $i);

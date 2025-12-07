@@ -27,6 +27,7 @@ class Appointments_model extends EA_Model
         'id_users_provider' => 'integer',
         'id_users_customer' => 'integer',
         'id_services' => 'integer',
+        'total_duration' => 'integer',
     ];
 
     /**
@@ -60,13 +61,38 @@ class Appointments_model extends EA_Model
      */
     public function save(array $appointment): int
     {
+        // Normalize services payload (supports both legacy single service and new services[] list).
+        $normalized_services = $this->normalize_services_payload($appointment);
+
+        if (!empty($normalized_services['main_service_id'])) {
+            $appointment['id_services'] = $normalized_services['main_service_id'];
+        }
+
+        if (array_key_exists('total_duration', $normalized_services)) {
+            $appointment['total_duration'] = $normalized_services['total_duration'];
+        }
+
+        if (array_key_exists('total_price', $normalized_services)) {
+            $appointment['total_price'] = $normalized_services['total_price'];
+        }
+
         $this->validate($appointment);
 
-        if (empty($appointment['id'])) {
-            return $this->insert($appointment);
-        } else {
-            return $this->update($appointment);
+        $this->db->trans_start();
+
+        $appointment_id = empty($appointment['id']) ? $this->insert($appointment) : $this->update($appointment);
+
+        if (!empty($normalized_services['services'])) {
+            $this->save_services_for_appointment($appointment_id, $normalized_services['services']);
         }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            throw new RuntimeException('Could not save appointment transaction.');
+        }
+
+        return $appointment_id;
     }
 
     /**
@@ -96,7 +122,7 @@ class Appointments_model extends EA_Model
         if (
             empty($appointment['start_datetime']) ||
             empty($appointment['end_datetime']) ||
-            empty($appointment['id_services']) ||
+            (empty($appointment['id_services']) && empty($appointment['services'])) ||
             empty($appointment['id_users_provider']) ||
             empty($appointment['id_users_customer']) ||
             (empty($appointment['notes']) && $require_notes)
@@ -156,10 +182,14 @@ class Appointments_model extends EA_Model
             }
 
             // Make sure the service ID really exists in the database.
-            $count = $this->db->get_where('services', ['id' => $appointment['id_services']])->num_rows();
+            $service_id = $appointment['id_services'] ?? null;
 
-            if (!$count) {
-                throw new InvalidArgumentException('Appointment service id is invalid.');
+            if ($service_id !== null) {
+                $count = $this->db->get_where('services', ['id' => $service_id])->num_rows();
+
+                if (!$count) {
+                    throw new InvalidArgumentException('Appointment service id is invalid.');
+                }
             }
         }
     }
@@ -577,6 +607,10 @@ class Appointments_model extends EA_Model
                 $appointment['id_caldav_calendar'] !== null ? $appointment['id_caldav_calendar'] : null,
         ];
 
+        if (!empty($appointment['id'])) {
+            $encoded_resource['services'] = $this->get_services_for_appointment((int) $appointment['id']);
+        }
+
         $appointment = $encoded_resource;
     }
 
@@ -644,6 +678,10 @@ class Appointments_model extends EA_Model
 
         $decoded_request['is_unavailability'] = false;
 
+        if (array_key_exists('services', $appointment) && is_array($appointment['services'])) {
+            $decoded_request['services'] = $appointment['services'];
+        }
+
         $appointment = $decoded_request;
     }
 
@@ -665,5 +703,199 @@ class Appointments_model extends EA_Model
         $end_date_time_object->add(new DateInterval('PT' . $duration . 'M'));
 
         return $end_date_time_object->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Return services list for an appointment from ea_appointment_services.
+     *
+     * @param int $appointment_id
+     *
+     * @return array
+     */
+    protected function get_services_for_appointment(int $appointment_id): array
+    {
+        if (empty($appointment_id)) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->order_by('position', 'ASC')
+            ->get_where('ea_appointment_services', ['appointment_id' => $appointment_id])
+            ->result_array();
+
+        return array_map(static function ($row) {
+            return [
+                'service_id' => (int) $row['service_id'],
+                'duration' => $row['duration'] !== null ? (int) $row['duration'] : null,
+                'price' => $row['price'] !== null ? (float) $row['price'] : null,
+                'position' => (int) $row['position'],
+            ];
+        }, $rows);
+    }
+
+    /**
+     * Save services set for appointment (replace).
+     *
+     * @param int $appointment_id
+     * @param array $services
+     */
+    protected function save_services_for_appointment(int $appointment_id, array $services): void
+    {
+        $this->db->delete('ea_appointment_services', ['appointment_id' => $appointment_id]);
+
+        foreach ($services as $service) {
+            $service_id = (int) ($service['service_id'] ?? 0);
+
+            if (!$service_id) {
+                continue;
+            }
+
+            $row = [
+                'appointment_id' => $appointment_id,
+                'service_id' => $service_id,
+                'duration' => array_key_exists('duration', $service) ? $service['duration'] : null,
+                'price' => array_key_exists('price', $service) ? $service['price'] : null,
+                'position' => array_key_exists('position', $service) ? (int) $service['position'] : 1,
+            ];
+
+            $this->db->insert('ea_appointment_services', $row);
+        }
+    }
+
+    /**
+     * Normalize services payload (services[] or legacy single service).
+     *
+     * Accepted input:
+     *  - legacy single serviceId / id_services
+     *  - services: [<id>|{service_id|serviceId,duration?,price?,position?}, ...]
+     *
+     * Returns array with:
+     *  - services: normalized list (service_id, duration, price, position)
+     *  - total_duration, total_price sums
+     *  - main_service_id (first element or legacy id_services)
+     */
+    protected function normalize_services_payload(array $data): array
+    {
+        $services_input = $data['services'] ?? null;
+
+        $raw_services = [];
+
+        if (is_array($services_input)) {
+            foreach ($services_input as $service) {
+                // Accept scalar ID or associative array/object
+                if (is_scalar($service)) {
+                    $raw_services[] = ['service_id' => (int) $service];
+                    continue;
+                }
+
+                $sid = (int) ($service['service_id'] ?? ($service['serviceId'] ?? 0));
+
+                if ($sid) {
+                    $raw_services[] = [
+                        'service_id' => $sid,
+                        'duration' => $service['duration'] ?? null,
+                        'price' => $service['price'] ?? null,
+                        'position' => $service['position'] ?? null,
+                    ];
+                }
+            }
+        } elseif (!empty($data['id_services'])) {
+            $raw_services[] = [
+                'service_id' => (int) $data['id_services'],
+                'duration' => $data['total_duration'] ?? null,
+                'price' => $data['total_price'] ?? null,
+                'position' => 1,
+            ];
+        }
+
+        if (empty($raw_services)) {
+            return [
+                'services' => [],
+                'total_duration' => $data['total_duration'] ?? null,
+                'total_price' => $data['total_price'] ?? null,
+                'main_service_id' => $data['id_services'] ?? null,
+            ];
+        }
+
+        // Collect IDs and fetch defaults in one query.
+        $service_ids = array_values(array_unique(array_column($raw_services, 'service_id')));
+
+        $defaults_map = [];
+        if (!empty($service_ids)) {
+            $rows = $this->db
+                ->select('id, duration, price')
+                ->from('services')
+                ->where_in('id', $service_ids)
+                ->get()
+                ->result_array();
+
+            foreach ($rows as $row) {
+                $defaults_map[(int) $row['id']] = [
+                    'duration' => $row['duration'] ?? null,
+                    'price' => $row['price'] ?? null,
+                ];
+            }
+        }
+
+        $normalized = [];
+        $position_counter = 1;
+
+        foreach ($raw_services as $service) {
+            $sid = (int) ($service['service_id'] ?? 0);
+
+            if (!$sid) {
+                continue;
+            }
+
+            $defaults = $defaults_map[$sid] ?? ['duration' => null, 'price' => null];
+
+            $duration = array_key_exists('duration', $service)
+                ? ($service['duration'] !== null ? (int) $service['duration'] : null)
+                : $defaults['duration'];
+
+            $price = array_key_exists('price', $service)
+                ? ($service['price'] !== null ? (float) $service['price'] : null)
+                : $defaults['price'];
+
+            $normalized[] = [
+                'service_id' => $sid,
+                'duration' => $duration,
+                'price' => $price,
+                'position' => array_key_exists('position', $service) && $service['position'] !== null
+                    ? (int) $service['position']
+                    : $position_counter,
+            ];
+
+            $position_counter++;
+        }
+
+        if (empty($normalized)) {
+            return [
+                'services' => [],
+                'total_duration' => $data['total_duration'] ?? null,
+                'total_price' => $data['total_price'] ?? null,
+                'main_service_id' => $data['id_services'] ?? null,
+            ];
+        }
+
+        $total_duration = null;
+        $total_price = null;
+
+        foreach ($normalized as $service) {
+            if ($service['duration'] !== null) {
+                $total_duration = (int) $total_duration + (int) $service['duration'];
+            }
+
+            if ($service['price'] !== null) {
+                $total_price = (float) $total_price + (float) $service['price'];
+            }
+        }
+
+        return [
+            'services' => $normalized,
+            'total_duration' => $total_duration,
+            'total_price' => $total_price,
+            'main_service_id' => $normalized[0]['service_id'] ?? null,
+        ];
     }
 }
