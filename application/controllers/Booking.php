@@ -540,8 +540,33 @@ class Booking extends EA_Controller
 
             $this->appointments_model->only($appointment, $this->allowed_appointment_fields);
 
+            // Persist appointment (services are handled separately to avoid array->SQL issues).
+            $services_for_pivot = $appointment['services'] ?? [];
+            unset($appointment['services']);
+
             $appointment_id = $this->appointments_model->save($appointment);
             $appointment = $this->appointments_model->find($appointment_id);
+
+            // Insert multi-service links.
+            if (!empty($services_for_pivot) && is_array($services_for_pivot)) {
+                foreach ($services_for_pivot as $service_item) {
+                    $sid = (int) ($service_item['service_id'] ?? 0);
+
+                    if (!$sid) {
+                        continue;
+                    }
+
+                    $this->db->insert('ea_appointment_services', [
+                        'id_appointments' => $appointment_id,
+                        'id_services' => $sid,
+                        'duration' => $service_item['duration'] ?? null,
+                        'price' => $service_item['price'] ?? null,
+                        'position' => $service_item['position'] ?? null,
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
 
             $company_color = setting('company_color');
 

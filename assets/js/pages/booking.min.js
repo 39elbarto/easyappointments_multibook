@@ -776,14 +776,23 @@ App.Pages.Booking = (function () {
             const sid = String($checkbox.data('serviceId'));
             const $container = $checkbox.closest('.form-check');
 
-            if (hasRestriction && !allowedIds.has(sid)) {
-                $checkbox.prop('checked', false);
-                $checkbox.prop('disabled', true);
-                $container.addClass('ea-service-disabled');
-            } else {
+            if (!hasRestriction) {
+                // Нет выбранных услуг: все чекбоксы снова активны.
                 $checkbox.prop('disabled', false);
                 $container.removeClass('ea-service-disabled');
+                return;
             }
+
+            if (allowedIds.has(sid)) {
+                $checkbox.prop('disabled', false);
+                $container.removeClass('ea-service-disabled');
+                return;
+            }
+
+            // Услуга недоступна для текущего пересечения мастеров.
+            $checkbox.prop('checked', false);
+            $checkbox.prop('disabled', true);
+            $container.addClass('ea-service-disabled');
         });
     }
 
