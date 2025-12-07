@@ -358,44 +358,43 @@ App.Pages.Booking = (function () {
         });
 
         /**
-         * Event: Selected Service "Changed" (vanilla single-service flow; checkboxes sync the main service)
+         * Event: Selected Service "Changed" (filters providers by intersection of selected services)
          */
         $selectService.on('change', () => {
-            const serviceId = $selectService.val();
+            const selectedServiceIds = getSelectedServiceIds();
+            const mainServiceId = selectedServiceIds[0] || $selectService.val();
 
-            $selectProvider.parent().prop('hidden', !Boolean(serviceId));
+            // sync hidden select with main service
+            $selectService.val(mainServiceId);
+
+            const filteredProviders = getFilteredProvidersByServices(selectedServiceIds);
+
+            $selectProvider.parent().prop('hidden', !Boolean(mainServiceId));
             $selectProvider.empty();
             $selectProvider.append(new Option(lang('please_select'), ''));
 
-            vars('available_providers').forEach((provider) => {
-                const canServeService =
-                    provider.services.filter((providerServiceId) => Number(providerServiceId) === Number(serviceId))
-                        .length > 0;
-
-                if (canServeService) {
-                    $selectProvider.append(new Option(provider.first_name + ' ' + provider.last_name, provider.id));
-                }
+            filteredProviders.forEach((provider) => {
+                $selectProvider.append(new Option(provider.first_name + ' ' + provider.last_name, provider.id));
             });
 
-            const providerOptionCount = $selectProvider.find('option').length;
+            const optionCount = $selectProvider.find('option').length;
 
-            if (providerOptionCount === 2) {
-                $selectProvider.find('option[value=""]').remove();
+            if (optionCount === 2) {
+                $selectProvider.find('option[value=\"\"]').remove();
             }
 
-            if (providerOptionCount > 2 && Boolean(Number(vars('display_any_provider')))) {
+            if (optionCount > 2 && Boolean(Number(vars('display_any_provider')))) {
                 $(new Option(lang('any_provider'), 'any-provider')).insertAfter($selectProvider.find('option:first'));
             }
 
             App.Http.Booking.getUnavailableDates(
                 $selectProvider.val(),
-                serviceId,
+                mainServiceId,
                 moment(App.Utils.UI.getDateTimePickerValue($selectDate)).format('YYYY-MM-DD'),
             );
 
             App.Pages.Booking.updateConfirmFrame();
-
-            App.Pages.Booking.updateServiceDescription(serviceId);
+            App.Pages.Booking.updateServiceDescription(mainServiceId);
         });
 
         // Toggle service categories
@@ -734,13 +733,9 @@ App.Pages.Booking = (function () {
 
         const filtered = allProviders.filter((provider) => providerCanServeAllServices(provider, selectedServiceIds));
 
-        if (filtered.length === 0 && allProviders.length > 0) {
-            console.warn(
-                'EA multi-services: no providers matched, falling back to all providers',
-                selectedServiceIds,
-                allProviders,
-            );
-            return allProviders;
+        if (filtered.length === 0) {
+            console.warn('EA multi-services: no providers matched', selectedServiceIds, allProviders);
+            return [];
         }
 
         return filtered;
@@ -1140,3 +1135,4 @@ App.Pages.Booking = (function () {
         getSelectedServiceIds,
     };
 })();
+console.log('[EA MULTIBOOK DEBUG v1] booking.js loaded');
