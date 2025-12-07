@@ -346,50 +346,76 @@ class Booking extends EA_Controller
 
             // Normalize services payload (multi-service) and compute totals.
             $services_payload = $appointment['services'] ?? [];
+            if (!is_array($services_payload)) {
+                // Accept scalar id or comma separated string, otherwise fallback to empty list.
+                if ($services_payload === null || $services_payload === '') {
+                    $services_payload = [];
+                } elseif (is_string($services_payload) && str_contains($services_payload, ',')) {
+                    $services_payload = array_map('trim', explode(',', $services_payload));
+                } else {
+                    $services_payload = [$services_payload];
+                }
+            }
+
             $normalized_services = [];
             $total_duration = 0;
             $total_price = 0;
 
-            if (is_array($services_payload)) {
-                $position = 1;
+            $position = 1;
 
-                foreach ($services_payload as $service_item) {
-                    $sid = (int) ($service_item['service_id'] ?? ($service_item['serviceId'] ?? $service_item ?? 0));
+            foreach ($services_payload as $service_item) {
+                // Accept scalar id or associative array.
+                if (is_array($service_item)) {
+                    $sid = (int) ($service_item['service_id'] ?? ($service_item['serviceId'] ?? 0));
+                } else {
+                    $sid = (int) $service_item;
+                }
 
-                    if (!$sid) {
-                        continue;
-                    }
+                if (!$sid) {
+                    continue;
+                }
 
-                    $service_row = $this->services_model->find($sid);
+                $service_row = $this->services_model->find($sid);
 
+                $duration = null;
+                $price = null;
+
+                if (is_array($service_item)) {
                     $duration =
                         array_key_exists('duration', $service_item) && $service_item['duration'] !== null
                             ? (int) $service_item['duration']
-                            : ($service_row['duration'] ?? null);
-
+                            : null;
                     $price =
                         array_key_exists('price', $service_item) && $service_item['price'] !== null
                             ? (float) $service_item['price']
-                            : ($service_row['price'] ?? null);
+                            : null;
+                }
 
-                    if ($duration !== null) {
-                        $total_duration += $duration;
-                    }
+                if ($duration === null) {
+                    $duration = $service_row['duration'] ?? null;
+                }
 
-                    if ($price !== null) {
-                        $total_price += $price;
-                    }
+                if ($price === null) {
+                    $price = $service_row['price'] ?? null;
+                }
 
-                    $normalized_services[] = [
-                        'service_id' => $sid,
-                        'duration' => $duration,
-                        'price' => $price,
-                        'position' => $position++,
-                    ];
+                if ($duration !== null) {
+                    $total_duration += $duration;
+                }
 
-                    if (empty($appointment['id_services'])) {
-                        $appointment['id_services'] = $sid;
-                    }
+                if ($price !== null) {
+                    $total_price += $price;
+                }
+
+                $normalized_services[] = [
+                    'service_id' => $sid,
+                    'duration' => $duration,
+                    'price' => $price,
+                    'position' => $position++,
+                ];
+
+                if (empty($appointment['id_services'])) {
+                    $appointment['id_services'] = $sid;
                 }
             }
 
