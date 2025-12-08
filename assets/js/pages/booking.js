@@ -368,7 +368,7 @@ App.Pages.Booking = (function () {
             $selectService.val(mainServiceId);
 
             const filteredProviders = getFilteredProvidersByServices(selectedServiceIds);
-            const allowedServiceIds = getAllowedServiceIdsFromProviders(filteredProviders);
+            const allowedServiceIds = Array.from(getAllowedServiceIdsFromProviders(filteredProviders));
 
             lockServicesByAllowed(allowedServiceIds);
 
@@ -377,6 +377,8 @@ App.Pages.Booking = (function () {
                     lang('unexpected_issues'),
                     lang('no_provider_for_selected_services') || 'Selected services cannot be served by one provider.',
                 );
+            } else {
+                lastValidSelectedServiceIds = selectedServiceIds.slice();
             }
 
             $selectProvider.parent().prop('hidden', !Boolean(mainServiceId));
@@ -424,10 +426,32 @@ App.Pages.Booking = (function () {
         });
 
         // Multi-service checkboxes (lightweight: sync first selected into hidden select)
-        $(document).on('change', '.js-multi-service-checkbox', () => {
+        $(document).on('change', '.js-multi-service-checkbox', (event) => {
             const selected = getSelectedServiceIds();
-            const mainServiceId = selected[0] || '';
+            const filteredProviders = getFilteredProvidersByServices(selected);
 
+            if (selected.length && filteredProviders.length === 0) {
+                // Roll back to last valid selection
+                syncCheckboxesToIds(lastValidSelectedServiceIds);
+                const fallbackProviders = getFilteredProvidersByServices(lastValidSelectedServiceIds);
+                const fallbackAllowed = Array.from(getAllowedServiceIdsFromProviders(fallbackProviders));
+                lockServicesByAllowed(fallbackAllowed);
+                const mainFallback = lastValidSelectedServiceIds[0] || '';
+                $selectService.val(mainFallback);
+                App.Utils.Message.show(
+                    lang('unexpected_issues'),
+                    lang('no_provider_for_selected_services') ||
+                        'Selected services cannot be served by one provider.',
+                );
+                $selectService.trigger('change');
+                return;
+            }
+
+            lastValidSelectedServiceIds = selected.slice();
+            const allowedServiceIds = Array.from(getAllowedServiceIdsFromProviders(filteredProviders));
+            lockServicesByAllowed(allowedServiceIds);
+
+            const mainServiceId = selected[0] || '';
             $selectService.val(mainServiceId);
             $selectService.trigger('change');
         });
@@ -768,11 +792,10 @@ App.Pages.Booking = (function () {
      * Дизейблит/снимает услуги, которые недоступны для переданного набора провайдеров.
      * Без триггера change, чтобы не зациклить обработчики.
      */
-    function lockServicesByAllowed(allowedIds) {
+    function lockServicesByAllowed(allowedServiceIds) {
         const $checkboxes = $('.js-multi-service-checkbox');
 
-        // Нет ограничений — разблокировать все услуги.
-        if (!Array.isArray(allowedIds) || allowedIds.length === 0) {
+        if (!Array.isArray(allowedServiceIds) || allowedServiceIds.length === 0) {
             $checkboxes.each(function () {
                 $(this)
                     .prop('disabled', false)
@@ -782,7 +805,7 @@ App.Pages.Booking = (function () {
             return;
         }
 
-        const allowedSet = new Set(allowedIds.map(String));
+        const allowedSet = new Set(allowedServiceIds.map((id) => String(id)));
 
         $checkboxes.each(function () {
             const $cb = $(this);
@@ -802,6 +825,14 @@ App.Pages.Booking = (function () {
                 .prop('disabled', true)
                 .closest('.form-check')
                 .addClass('ea-service-disabled');
+        });
+    }
+
+    function syncCheckboxesToIds(ids) {
+        const set = new Set((ids || []).map((id) => String(id)));
+        $('.js-multi-service-checkbox').each(function () {
+            const sid = String($(this).data('service-id'));
+            $(this).prop('checked', set.has(sid));
         });
     }
 

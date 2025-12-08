@@ -114,6 +114,7 @@ $lang['customers'] = 'Customers';
 $lang['details'] = 'Details';
 $lang['no_records_found'] = 'No records found...';
 $lang['services'] = 'Services';
+$lang['no_provider_for_selected_services'] = 'Selected services cannot be served by one provider.';
 $lang['duration_minutes'] = 'Duration (Minutes)';
 $lang['currency'] = 'Currency';
 $lang['category'] = 'Category';

@@ -483,6 +483,7 @@ $lang['fields'] = 'Поля';
 $lang['invalid_credentials_provided'] = 'Предоставлены неверные учетные данные, пожалуйста, попробуйте снова.';
 $lang['calendar_url'] = 'URL Календаря';
 $lang['please_select'] = 'Пожалуйста, выберите';
+$lang['no_provider_for_selected_services'] = 'Ни один исполнитель не может выполнить выбранную комбинацию услуг.';
 $lang['secret_header'] = 'Secret Header';
 $lang['search'] = 'Search';
 // End

@@ -549,7 +549,6 @@ class Booking extends EA_Controller
 
             // Insert multi-service links using actual column names (see DESCRIBE ea_appointment_services).
             if (!empty($services_for_pivot) && is_array($services_for_pivot)) {
-                $now = date('Y-m-d H:i:s');
                 foreach ($services_for_pivot as $service_item) {
                     $sid = (int) ($service_item['service_id'] ?? 0);
 
@@ -563,8 +562,6 @@ class Booking extends EA_Controller
                         'duration' => $service_item['duration'] ?? null,
                         'price' => $service_item['price'] ?? null,
                         'position' => $service_item['position'] ?? null,
-                        'created' => $now,
-                        'modified' => $now,
                     ]);
                 }
             }
